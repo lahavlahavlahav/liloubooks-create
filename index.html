@@ -34,6 +34,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15p
 header.top{display:flex;flex-direction:column;gap:6px;margin-bottom:22px}
 .eyebrow{font-size:13px;letter-spacing:.06em;color:var(--accent);font-weight:600}
 h1{font-family:var(--display);font-weight:700;font-size:clamp(42px,6.2vw,68px);line-height:1;margin:0;text-wrap:balance}
+.thanks{background:var(--accent-soft);border:1px solid var(--accent);border-radius:10px;padding:12px 16px;font-size:15px;display:flex;flex-wrap:wrap;gap:6px 10px}
 .lede{color:var(--muted);margin:0;max-width:62ch}
 
 .layout{display:grid;grid-template-columns:minmax(320px,400px) 1fr;grid-template-areas:"panel stage";gap:24px;align-items:start}
@@ -149,6 +150,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 <div class="wrap" dir="rtl" lang="he">
   <header class="top">
     <span class="eyebrow">ספר מקופל בעבודת יד · הנצחה · מתנה · לוגו לעסק</span>
+    <div class="thanks" id="thanks" hidden role="status"><b>תודה, ההזמנה התקבלה!</b> ניצור איתכם קשר בימים הקרובים לגבי התמונה והמשלוח. <span id="thanksId"></span></div>
     <h1>התמונה של מי שאתם אוהבים, מקופלת בין דפי ספר</h1>
     <p class="lede">מעלים תמונה, עונים על ארבע שאלות קצרות, ורואים איך הספר ייראה. אפשר לסובב אותו ולהסתכל מכל כיוון.</p>
   </header>
@@ -235,7 +237,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
           <div id="glassLine" hidden><span>כלי זכוכית</span><span id="glassPrice">₪0</span></div>
         </div>
         <div class="total"><span>סה״כ משוער</span><strong id="total">₪0</strong></div>
-        <p class="fine">המחיר נקבע לפי כמות הקיפולים שהתמונה דורשת, בין ₪1,800 ל־₪3,800. המחיר הסופי ייקבע אחרי שנבדוק את התמונה המקורית.</p>
+        <p class="fine">המחיר נקבע לפי רמת המורכבות של התמונה: ₪1,800, ₪2,300, ₪2,800, ₪3,300 או ₪3,800. אחרי ההזמנה נעבור על התמונה ונחזור אליכם אם צריך התאמות.</p>
         <button class="btn" id="orderBtn" type="button">להזמנה ותשלום</button>
       </section>
     </div>
@@ -748,7 +750,10 @@ new ResizeObserver(resize).observe(stage);
 
 /* ---------- price ---------- */
 const fmt = n => '₪' + n.toLocaleString('he-IL');
-function bookPrice() { return Math.round((1800 + 2000 * complexity) / 50) * 50; }
+const TIER_PRICES = [1800, 2300, 2800, 3300, 3800];
+const TIER_NAMES = ['פשוטה', 'בינונית', 'מורכבת', 'מורכבת מאוד', 'מקסימלית'];
+function tier() { return Math.min(4, Math.floor(complexity * 5)); }
+function bookPrice() { return TIER_PRICES[tier()]; }
 function updatePrice() {
   const sz = SIZES[state.size];
   const bp = bookPrice(), gp = state.glass ? sz.glass : 0;
@@ -758,9 +763,8 @@ function updatePrice() {
   document.getElementById('glassPrice').textContent = fmt(gp);
   document.getElementById('total').textContent = fmt(bp + gp);
   document.getElementById('glassYesTxt').textContent = `כן, להוסיף (+${fmt(sz.glass)})`;
-  const labels = ['פשוטה', 'בינונית', 'מורכבת', 'מורכבת מאוד'];
-  document.getElementById('cxLabel').textContent = labels[Math.min(3, Math.floor(complexity * 4))];
-  document.getElementById('cxBar').style.width = Math.max(6, complexity * 100) + '%';
+  document.getElementById('cxLabel').textContent = TIER_NAMES[tier()];
+  document.getElementById('cxBar').style.width = (tier() + 1) * 20 + '%';
 }
 
 /* ---------- pipeline ---------- */
@@ -991,9 +995,16 @@ thumb.addEventListener('pointerup', () => { drag = null; });
 thumb.addEventListener('pointercancel', () => { drag = null; });
 
 /* ---------- checkout: shipping details, then payment in Grow ---------- */
-// The Make scenario receives the order (JSON), creates a Grow payment for `total`,
-// and answers with the payment page URL (plain text, or JSON { "url": "..." }).
-const CONFIG = { makeWebhookUrl: '' };
+// One fixed-amount Grow payment link per price: 5 complexity tiers × (no glass / glass for a regular book / glass for a large book).
+// makeWebhookUrl (optional) saves each order (details, address, photo) before the customer is sent to pay.
+const CONFIG = {
+  makeWebhookUrl: '',
+  growLinks: {
+    1800: '', 2300: '', 2800: '', 3300: '', 3800: '',      // no glass
+    2180: '', 2680: '', 3180: '', 3680: '', 4180: '',      // + glass, regular book (380)
+    2250: '', 2750: '', 3250: '', 3750: '', 4250: ''       // + glass, large book (450)
+  }
+};
 
 function orderSummary() {
   const sz = SIZES[state.size], bp = bookPrice(), gp = state.glass ? sz.glass : 0;
@@ -1002,7 +1013,7 @@ function orderSummary() {
     cover: COVERS.find(c => c.id === state.cover).name,
     language: LANGS[state.lang].name,
     glass: state.glass ? 'כן' : 'לא',
-    complexity: document.getElementById('cxLabel').textContent,
+    complexity: TIER_NAMES[tier()],
     bookPrice: bp, glassPrice: gp, total: bp + gp
   };
 }
@@ -1025,6 +1036,10 @@ function imageData(canvas, max, type, q) {
   const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(canvas, 0, 0, c.width, c.height);
   return c.toDataURL(type, q);
 }
+function orderId() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `LB-${String(d.getFullYear()).slice(2)}${p(d.getMonth() + 1)}${p(d.getDate())}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
 
 coForm.addEventListener('submit', async e => {
   e.preventDefault();
@@ -1037,31 +1052,43 @@ coForm.addEventListener('submit', async e => {
   if (!f.street.trim()) missing.push('רחוב ומספר בית');
   if (missing.length) { coErr.textContent = 'חסר או לא תקין: ' + missing.join(', '); return; }
   if (state.isSample) { coErr.textContent = 'קודם מעלים תמונה, ואז ממשיכים לתשלום.'; return; }
-  if (!CONFIG.makeWebhookUrl) { coErr.textContent = 'התשלום עוד לא מחובר. נא לפנות אלינו ישירות.'; return; }
+  const o = orderSummary(), payUrl = CONFIG.growLinks[o.total];
+  if (!payUrl) { coErr.textContent = 'התשלום עוד לא מחובר. נא לפנות אלינו ישירות.'; return; }
   const btn = document.getElementById('coPay');
-  btn.disabled = true; btn.textContent = 'מכינים את עמוד התשלום…'; coErr.textContent = '';
-  try {
-    const payload = {
-      customer: { name: f.name.trim(), phone: f.phone.trim(), email: f.email.trim() },
-      shipping: { city: f.city.trim(), street: f.street.trim(), apartment: f.apartment.trim(), zip: f.zip.trim() },
+  btn.disabled = true; btn.textContent = 'שומרים את ההזמנה…'; coErr.textContent = '';
+  const id = orderId();
+  try { sessionStorage.setItem('lilouOrder', id); } catch (_) {}
+  if (CONFIG.makeWebhookUrl) {
+    // a plain form post: Make reads every field directly, and the browser needs no CORS permission
+    const fields = new URLSearchParams({
+      orderId: id, date: new Date().toLocaleString('he-IL'),
+      name: f.name.trim(), phone: f.phone.trim(), email: f.email.trim(),
+      city: f.city.trim(), street: f.street.trim(), apartment: f.apartment.trim(), zip: f.zip.trim(),
       notes: f.notes.trim(),
-      order: orderSummary(),
-      settings: { detail: state.detail, thickness: state.thick, zoom: state.zoom, opening: state.open },
+      size: o.size, cover: o.cover, language: o.language, glass: o.glass, complexity: o.complexity,
+      bookPrice: o.bookPrice, glassPrice: o.glassPrice, total: o.total,
+      detail: state.detail, thickness: state.thick, zoom: state.zoom, opening: state.open,
       lineArt: imageData(thumbCanvas, 480, 'image/png'),
-      photo: original ? imageData(cropSrc, 1200, 'image/jpeg', .85) : null
-    };
-    const res = await fetch(CONFIG.makeWebhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (!res.ok) throw new Error(res.status);
-    const txt = (await res.text()).trim();
-    let url = txt;
-    try { url = JSON.parse(txt).url || txt; } catch (_) {}
-    if (!/^https:\/\//.test(url)) throw new Error('no url');
-    window.location.href = url;
-  } catch (err) {
-    coErr.textContent = 'לא הצלחנו לפתוח את עמוד התשלום. נסו שוב בעוד רגע.';
-    btn.disabled = false; btn.textContent = 'מעבר לתשלום';
+      photo: original ? imageData(cropSrc, 1200, 'image/jpeg', .85) : ''
+    });
+    try {
+      await Promise.race([
+        fetch(CONFIG.makeWebhookUrl, { method: 'POST', mode: 'no-cors', body: fields }),
+        new Promise(r => setTimeout(r, 8000))
+      ]);
+    } catch (_) { /* saving failed: still let the customer pay, the payment carries their name */ }
   }
+  btn.textContent = 'עוברים לתשלום…';
+  window.location.href = payUrl;
 });
+
+// back from Grow after a successful payment (set the link's success page to https://create.liloubooks.com/#thanks)
+if (location.hash === '#thanks') {
+  let id = ''; try { id = sessionStorage.getItem('lilouOrder') || ''; } catch (_) {}
+  const t = document.getElementById('thanks');
+  t.hidden = false;
+  if (id) document.getElementById('thanksId').textContent = `מספר הזמנה: ${id}`;
+}
 
 /* ---------- start ---------- */
 setOpening();
